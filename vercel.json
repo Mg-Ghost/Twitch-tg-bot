@@ -1,5 +1,6 @@
 {
   "routes": [
-    { "src": "/webhook", "dest": "/api/webhook.go" }
+    { "src": "/webhook", "dest": "/api/webhook.go" },
+    { "src": "/set-message", "dest": "/api/webhook.go" }
   ]
 }
