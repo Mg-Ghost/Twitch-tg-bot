@@ -1,6 +1,6 @@
 {
   "routes": [
     { "src": "/webhook", "dest": "/api/webhook.go" },
-    { "src": "/set-message", "dest": "/api/webhook.go" }
+    { "src": "/tg-update", "dest": "/api/webhook.go" }
   ]
 }
