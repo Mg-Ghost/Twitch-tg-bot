@@ -46,10 +46,15 @@ type TelegramUpdate struct {
 }
 
 func redisGet() string {
-	url := os.Getenv("UPSTASH_REDIS_REST_URL") + "/get/stream_message"
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
+	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	req, _ := http.NewRequest("GET", url, nil)
+	url := restURL + "/get/stream_message"
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return ""
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -72,8 +77,13 @@ func redisSet(value string) error {
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
 	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	url := fmt.Sprintf("%s/set/stream_message/%s", restURL, value)
-	req, _ := http.NewRequest("GET", url, nil)
+	encoded := strings.ReplaceAll(value, " ", "%20")
+	url := fmt.Sprintf("%s/set/stream_message/%s", restURL, encoded)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := http.DefaultClient.Do(req)
