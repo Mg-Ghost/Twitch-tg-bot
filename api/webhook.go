@@ -169,7 +169,7 @@ func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendTelegramTo(botToken, chatID, "Пошел вон ничего не буду менять")
+	sendTelegramTo(botToken, chatID, fmt.Sprintf("Сообщение обновлено:\n%s", text))
 	w.WriteHeader(http.StatusOK)
 }
 
