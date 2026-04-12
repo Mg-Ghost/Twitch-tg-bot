@@ -10,6 +10,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+)
+
+var (
+	customMessage string
+	mu            sync.RWMutex
 )
 
 type TwitchEvent struct {
@@ -23,6 +29,11 @@ type TwitchPayload struct {
 		Type string `json:"type"`
 	} `json:"subscription"`
 	Event TwitchEvent `json:"event"`
+}
+
+type SetMessageRequest struct {
+	Message string `json:"message"`
+	Token   string `json:"token"`
 }
 
 func verifyTwitchSignature(r *http.Request, body []byte) bool {
@@ -57,6 +68,34 @@ func sendTelegramMessage(text string) error {
 }
 
 func Handler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && r.URL.Path == "/set-message" {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "cannot read body", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+
+		var req SetMessageRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+
+		if req.Token != os.Getenv("BOT_ADMIN_TOKEN") {
+			http.Error(w, "unauthorized", http.StatusForbidden)
+			return
+		}
+
+		mu.Lock()
+		customMessage = req.Message
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true,"message":"сообщение обновлено"}`))
+		return
+	}
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "cannot read body", http.StatusBadRequest)
@@ -88,16 +127,24 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	streamer := payload.Event.BroadcasterUserLogin
-	displayName := payload.Event.BroadcasterUserName
-	if displayName == "" {
-		displayName = streamer
-	}
+	mu.RLock()
+	msg := customMessage
+	mu.RUnlock()
 
-	text := fmt.Sprintf(
-		"🔴 <b>%s</b> начал стрим!\n\nЗаходите смотреть: https://twitch.tv/%s",
-		displayName, streamer,
-	)
+	var text string
+	if msg != "" {
+		text = msg
+	} else {
+		streamer := payload.Event.BroadcasterUserLogin
+		displayName := payload.Event.BroadcasterUserName
+		if displayName == "" {
+			displayName = streamer
+		}
+		text = fmt.Sprintf(
+			"🔴 <b>%s</b> начал стрим!\n\nЗаходите смотреть: https://twitch.tv/%s",
+			displayName, streamer,
+		)
+	}
 
 	if err := sendTelegramMessage(text); err != nil {
 		http.Error(w, "telegram error", http.StatusInternalServerError)
