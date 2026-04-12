@@ -13,10 +13,7 @@ import (
 	"sync"
 )
 
-var (
-	customMessage string
-	mu            sync.RWMutex
-)
+var mu sync.RWMutex
 
 var allowedUsers = map[int64]bool{
 	1037388537: true,
@@ -46,6 +43,46 @@ type TelegramUpdate struct {
 			ID int64 `json:"id"`
 		} `json:"chat"`
 	} `json:"message"`
+}
+
+func redisGet() string {
+	url := os.Getenv("UPSTASH_REDIS_REST_URL") + "/get/stream_message"
+	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
+
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Result *string `json:"result"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result.Result == nil {
+		return ""
+	}
+	return *result.Result
+}
+
+func redisSet(value string) error {
+	url := os.Getenv("UPSTASH_REDIS_REST_URL") + "/set/stream_message"
+	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
+
+	body := fmt.Sprintf(`{"value":%s}`, jsonString(value))
+	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 func verifyTwitchSignature(r *http.Request, body []byte) bool {
@@ -116,9 +153,11 @@ func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mu.Lock()
-	customMessage = text
-	mu.Unlock()
+	if err := redisSet(text); err != nil {
+		sendTelegramTo(botToken, chatID, "Ошибка сохранения.")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
 	sendTelegramTo(botToken, chatID, "Сообщение обновлено")
 	w.WriteHeader(http.StatusOK)
@@ -156,9 +195,7 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mu.RLock()
-	msg := customMessage
-	mu.RUnlock()
+	msg := redisGet()
 
 	var text string
 	if msg != "" {
