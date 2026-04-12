@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "api/webhook.go": {
-      "runtime": "@vercel/go"
-    }
-  },
   "routes": [
     { "src": "/webhook", "dest": "/api/webhook.go" }
   ]
