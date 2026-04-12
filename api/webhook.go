@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -77,10 +78,10 @@ func redisSet(value string) error {
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
 	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	encoded := strings.ReplaceAll(value, " ", "%20")
-	url := fmt.Sprintf("%s/set/stream_message/%s", restURL, encoded)
+	encoded := url.QueryEscape(value)
+	reqURL := fmt.Sprintf("%s/set/stream_message/%s", restURL, encoded)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return err
 	}
