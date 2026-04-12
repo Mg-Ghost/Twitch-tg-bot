@@ -69,13 +69,12 @@ func redisGet() string {
 }
 
 func redisSet(value string) error {
-	url := os.Getenv("UPSTASH_REDIS_REST_URL") + "/set/stream_message"
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
+	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	body := fmt.Sprintf(`{"value":%s}`, jsonString(value))
-	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
+	url := fmt.Sprintf("%s/set/stream_message/%s", restURL, value)
+	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
