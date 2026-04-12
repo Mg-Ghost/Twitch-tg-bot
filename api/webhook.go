@@ -107,8 +107,8 @@ func sendTelegramMessage(text string) error {
 func sendTelegramTo(botToken string, chatID interface{}, text string) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	payload := fmt.Sprintf(
-		`{"chat_id":%v,"text":%s,"parse_mode":"HTML"}`,
-		chatID, jsonString(text),
+		`{"chat_id":%s,"text":%s,"parse_mode":"HTML"}`,
+		jsonString(fmt.Sprintf("%v", chatID)), jsonString(text),
 	)
 	resp, err := http.Post(url, "application/json", strings.NewReader(payload))
 	if err != nil {
