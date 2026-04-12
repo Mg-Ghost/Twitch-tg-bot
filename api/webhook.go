@@ -18,11 +18,6 @@ var (
 	mu            sync.RWMutex
 )
 
-var allowedUsers = map[int64]bool{
-	1037388537: true,
-	1453436329: true,
-}
-
 type TwitchEvent struct {
 	BroadcasterUserLogin string `json:"broadcaster_user_login"`
 	BroadcasterUserName  string `json:"broadcaster_user_name"`
@@ -36,16 +31,9 @@ type TwitchPayload struct {
 	Event TwitchEvent `json:"event"`
 }
 
-type TelegramUpdate struct {
-	Message struct {
-		Text string `json:"text"`
-		From struct {
-			ID int64 `json:"id"`
-		} `json:"from"`
-		Chat struct {
-			ID int64 `json:"id"`
-		} `json:"chat"`
-	} `json:"message"`
+type SetMessageRequest struct {
+	Message string `json:"message"`
+	Token   string `json:"token"`
 }
 
 func verifyTwitchSignature(r *http.Request, body []byte) bool {
@@ -64,14 +52,11 @@ func verifyTwitchSignature(r *http.Request, body []byte) bool {
 func sendTelegramMessage(text string) error {
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := os.Getenv("TELEGRAM_CHANNEL_ID")
-	return sendTelegramTo(botToken, chatID, text)
-}
 
-func sendTelegramTo(botToken string, chatID interface{}, text string) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	payload := fmt.Sprintf(
-		`{"chat_id":%v,"text":%s,"parse_mode":"HTML"}`,
-		chatID, jsonString(text),
+		`{"chat_id":"%s","text":"%s","parse_mode":"HTML"}`,
+		chatID, text,
 	)
 
 	resp, err := http.Post(url, "application/json", strings.NewReader(payload))
@@ -82,15 +67,8 @@ func sendTelegramTo(botToken string, chatID interface{}, text string) error {
 	return nil
 }
 
-func jsonString(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
-}
-
 func Handler(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
-
-	if path == "/tg-update" && r.Method == http.MethodPost {
+	if r.Method == http.MethodPost && r.URL.Path == "/set-message" {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, "cannot read body", http.StatusBadRequest)
@@ -98,96 +76,80 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		}
 		defer r.Body.Close()
 
-		var update TelegramUpdate
-		if err := json.Unmarshal(body, &update); err != nil {
+		var req SetMessageRequest
+		if err := json.Unmarshal(body, &req); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
 
-		userID := update.Message.From.ID
-		chatID := update.Message.Chat.ID
-		text := update.Message.Text
-		botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
-
-		if !allowedUsers[userID] {
-			sendTelegramTo(botToken, chatID, "У тебя нет доступа.")
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		if text == "" {
-			w.WriteHeader(http.StatusOK)
+		if req.Token != os.Getenv("BOT_ADMIN_TOKEN") {
+			http.Error(w, "unauthorized", http.StatusForbidden)
 			return
 		}
 
 		mu.Lock()
-		customMessage = text
+		customMessage = req.Message
 		mu.Unlock()
 
-		sendTelegramTo(botToken, chatID, "Сообщение обновлено")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true,"message":"сообщение обновлено"}`))
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "cannot read body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if !verifyTwitchSignature(r, body) {
+		http.Error(w, "invalid signature", http.StatusForbidden)
+		return
+	}
+
+	var payload TwitchPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	msgType := r.Header.Get("Twitch-Eventsub-Message-Type")
+	if msgType == "webhook_callback_verification" {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(payload.Challenge))
+		return
+	}
+
+	if payload.Subscription.Type != "stream.online" {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	if path == "/webhook" && r.Method == http.MethodPost {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "cannot read body", http.StatusBadRequest)
-			return
+	mu.RLock()
+	msg := customMessage
+	mu.RUnlock()
+
+	var text string
+	if msg != "" {
+		text = msg
+	} else {
+		streamer := payload.Event.BroadcasterUserLogin
+		displayName := payload.Event.BroadcasterUserName
+		if displayName == "" {
+			displayName = streamer
 		}
-		defer r.Body.Close()
+		text = fmt.Sprintf(
+			"🔴 <b>%s</b> начал стрим!\n\nЗаходите смотреть: https://twitch.tv/%s",
+			displayName, streamer,
+		)
+	}
 
-		if !verifyTwitchSignature(r, body) {
-			http.Error(w, "invalid signature", http.StatusForbidden)
-			return
-		}
-
-		var payload TwitchPayload
-		if err := json.Unmarshal(body, &payload); err != nil {
-			http.Error(w, "invalid json", http.StatusBadRequest)
-			return
-		}
-
-		msgType := r.Header.Get("Twitch-Eventsub-Message-Type")
-		if msgType == "webhook_callback_verification" {
-			w.Header().Set("Content-Type", "text/plain")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(payload.Challenge))
-			return
-		}
-
-		if payload.Subscription.Type != "stream.online" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		mu.RLock()
-		msg := customMessage
-		mu.RUnlock()
-
-		var text string
-		if msg != "" {
-			text = msg
-		} else {
-			streamer := payload.Event.BroadcasterUserLogin
-			displayName := payload.Event.BroadcasterUserName
-			if displayName == "" {
-				displayName = streamer
-			}
-			text = fmt.Sprintf(
-				"🔴 <b>%s</b> начал стрим!\n\nЗаходите смотреть: https://twitch.tv/%s",
-				displayName, streamer,
-			)
-		}
-
-		if err := sendTelegramMessage(text); err != nil {
-			http.Error(w, "telegram error", http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
+	if err := sendTelegramMessage(text); err != nil {
+		http.Error(w, "telegram error", http.StatusInternalServerError)
 		return
 	}
 
-	http.NotFound(w, r)
+	w.WriteHeader(http.StatusOK)
 }
