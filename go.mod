@@ -1,0 +1,3 @@
+module streamnotifications
+
+go 1.25.5
