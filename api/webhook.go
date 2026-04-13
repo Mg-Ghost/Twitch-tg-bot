@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -62,14 +61,15 @@ func redisSet(key, value string) error {
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
 	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	encoded := url.QueryEscape(value)
-	reqURL := fmt.Sprintf("%s/set/%s/%s", restURL, key, encoded)
+	reqURL := fmt.Sprintf("%s/set/%s", restURL, key)
+	body := fmt.Sprintf(`["EX","86400",%s]`, jsonString(value))
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequest("POST", reqURL, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
