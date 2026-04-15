@@ -160,12 +160,12 @@ func sendWithButtons(botToken string, chatID interface{}, text string) error {
 }
 
 func sendUpdateNotification(botToken string, chatID interface{}, title, category string) error {
+	redisSet("pending_title", title)
+	redisSet("pending_category", category)
+
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	text := fmt.Sprintf("🔔 Смена категории и названия\n\nКатегория: <b>%s</b>\nНазвание: <b>%s</b>\n\nОповестить подписчиков?", category, title)
-	buttons := fmt.Sprintf(
-		`{"inline_keyboard":[[{"text":"📣 Оповестить","callback_data":"notify_%s_%s"},{"text":"❌ Не надо","callback_data":"skip"}]]}`,
-		escapeCallback(category), escapeCallback(title),
-	)
+	buttons := `{"inline_keyboard":[[{"text":"📣 Оповестить","callback_data":"notify"},{"text":"❌ Не надо","callback_data":"skip"}]]}`
 	payload := fmt.Sprintf(
 		`{"chat_id":%s,"text":%s,"parse_mode":"HTML","reply_markup":%s}`,
 		jsonString(fmt.Sprintf("%v", chatID)), jsonString(text), buttons,
@@ -176,15 +176,6 @@ func sendUpdateNotification(botToken string, chatID interface{}, title, category
 	}
 	defer resp.Body.Close()
 	return nil
-}
-
-func escapeCallback(s string) string {
-	s = strings.ReplaceAll(s, "_", "-")
-	s = strings.ReplaceAll(s, "|", "-")
-	if len(s) > 30 {
-		s = s[:30]
-	}
-	return s
 }
 
 func answerCallback(botToken, callbackID string) {
@@ -262,14 +253,9 @@ func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
 			sendWithButtons(botToken, chatID, "📋 Текущее сообщение:\n\n"+msg+"\n\n"+statusText())
 		case cq.Data == "skip":
 			sendTelegramTo(botToken, chatID, "👌 Оповещение отменено")
-		case strings.HasPrefix(cq.Data, "notify_"):
-			parts := strings.SplitN(strings.TrimPrefix(cq.Data, "notify_"), "_", 2)
-			category := ""
-			title := ""
-			if len(parts) == 2 {
-				category = parts[0]
-				title = parts[1]
-			}
+		case cq.Data == "notify":
+			category := redisGet("pending_category")
+			title := redisGet("pending_title")
 			text := fmt.Sprintf("🔄 Сменили категорию и название!\n\nКатегория: <b>%s</b>\nНазвание: <b>%s</b>", category, title)
 			sendTelegramMessage(text)
 			sendTelegramTo(botToken, chatID, "✅ Оповещение отправлено в канал")
