@@ -23,6 +23,8 @@ var allowedUsers = map[int64]bool{
 type TwitchEvent struct {
 	BroadcasterUserLogin string `json:"broadcaster_user_login"`
 	BroadcasterUserName  string `json:"broadcaster_user_name"`
+	Title                string `json:"title"`
+	CategoryName         string `json:"category_name"`
 }
 
 type TwitchPayload struct {
@@ -61,8 +63,7 @@ func redisSet(key, value string) error {
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
 	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	type setCmd []interface{}
-	cmd := setCmd{"SET", key, value}
+	cmd := []interface{}{"SET", key, value}
 	body, _ := json.Marshal(cmd)
 
 	req, err := http.NewRequest("POST", restURL, strings.NewReader(string(body)))
@@ -84,8 +85,7 @@ func redisGet(key string) string {
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
 	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	type getCmd []interface{}
-	cmd := getCmd{"GET", key}
+	cmd := []interface{}{"GET", key}
 	body, _ := json.Marshal(cmd)
 
 	req, err := http.NewRequest("POST", restURL, strings.NewReader(string(body)))
@@ -131,12 +131,12 @@ func sendTelegramMessage(text string) error {
 }
 
 func sendTelegramTo(botToken string, chatID interface{}, text string) error {
-	reqURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	payload := fmt.Sprintf(
 		`{"chat_id":%s,"text":%s,"parse_mode":"HTML"}`,
 		jsonString(fmt.Sprintf("%v", chatID)), jsonString(text),
 	)
-	resp, err := http.Post(reqURL, "application/json", strings.NewReader(payload))
+	resp, err := http.Post(apiURL, "application/json", strings.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -144,13 +144,14 @@ func sendTelegramTo(botToken string, chatID interface{}, text string) error {
 	return nil
 }
 
-func sendWithButtons(botToken string, chatID int64, text string) error {
-	reqURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+func sendWithButtons(botToken string, chatID interface{}, text string) error {
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	buttons := `{"inline_keyboard":[[{"text":"▶ Старт","callback_data":"start"},{"text":"⏹ Стоп","callback_data":"stop"}],[{"text":"📋 Сообщение","callback_data":"message"}]]}`
 	payload := fmt.Sprintf(
-		`{"chat_id":%d,"text":%s,"parse_mode":"HTML","reply_markup":{"inline_keyboard":[[{"text":"▶ Старт","callback_data":"start"},{"text":"⏹ Стоп","callback_data":"stop"}],[{"text":"📋 Сообщение","callback_data":"message"}]]}}`,
-		chatID, jsonString(text),
+		`{"chat_id":%s,"text":%s,"parse_mode":"HTML","reply_markup":%s}`,
+		jsonString(fmt.Sprintf("%v", chatID)), jsonString(text), buttons,
 	)
-	resp, err := http.Post(reqURL, "application/json", strings.NewReader(payload))
+	resp, err := http.Post(apiURL, "application/json", strings.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -158,10 +159,38 @@ func sendWithButtons(botToken string, chatID int64, text string) error {
 	return nil
 }
 
-func answerCallback(botToken, callbackID, text string) {
-	reqURL := fmt.Sprintf("https://api.telegram.org/bot%s/answerCallbackQuery", botToken)
-	payload := fmt.Sprintf(`{"callback_query_id":%s,"text":%s}`, jsonString(callbackID), jsonString(text))
-	resp, _ := http.Post(reqURL, "application/json", strings.NewReader(payload))
+func sendUpdateNotification(botToken string, chatID interface{}, title, category string) error {
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	text := fmt.Sprintf("🔔 Смена категории и названия\n\nКатегория: <b>%s</b>\nНазвание: <b>%s</b>\n\nОповестить подписчиков?", category, title)
+	buttons := fmt.Sprintf(
+		`{"inline_keyboard":[[{"text":"📣 Оповестить","callback_data":"notify_%s_%s"},{"text":"❌ Не надо","callback_data":"skip"}]]}`,
+		escapeCallback(category), escapeCallback(title),
+	)
+	payload := fmt.Sprintf(
+		`{"chat_id":%s,"text":%s,"parse_mode":"HTML","reply_markup":%s}`,
+		jsonString(fmt.Sprintf("%v", chatID)), jsonString(text), buttons,
+	)
+	resp, err := http.Post(apiURL, "application/json", strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
+func escapeCallback(s string) string {
+	s = strings.ReplaceAll(s, "_", "-")
+	s = strings.ReplaceAll(s, "|", "-")
+	if len(s) > 30 {
+		s = s[:30]
+	}
+	return s
+}
+
+func answerCallback(botToken, callbackID string) {
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/answerCallbackQuery", botToken)
+	payload := fmt.Sprintf(`{"callback_query_id":"%s"}`, callbackID)
+	resp, _ := http.Post(apiURL, "application/json", strings.NewReader(payload))
 	if resp != nil {
 		resp.Body.Close()
 	}
@@ -172,12 +201,18 @@ func jsonString(s string) string {
 	return string(b)
 }
 
-func getStatus() string {
+func statusText() string {
 	status := redisGet("bot_status")
 	if status == "off" {
-		return "off"
+		return "🔴 Бот остановлен"
 	}
-	return "on"
+	return "🟢 Бот работает"
+}
+
+func notifyAllAdmins(botToken, text string) {
+	for userID := range allowedUsers {
+		sendTelegramTo(botToken, userID, text)
+	}
 }
 
 func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
@@ -197,36 +232,47 @@ func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
 	if update.CallbackQuery != nil {
-		cb := update.CallbackQuery
-		userID := cb.From.ID
-		chatID := cb.Message.Chat.ID
+		cq := update.CallbackQuery
+		answerCallback(botToken, cq.ID)
 
-		if !allowedUsers[userID] {
-			answerCallback(botToken, cb.ID, "У тебя нет доступа.")
+		if !allowedUsers[cq.From.ID] {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
-		switch cb.Data {
-		case "start":
-			if getStatus() == "on" {
-				answerCallback(botToken, cb.ID, "Бот уже запущен")
-			} else {
+		chatID := cq.Message.Chat.ID
+
+		switch {
+		case cq.Data == "start":
+			status := redisGet("bot_status")
+			if status == "off" {
 				redisSet("bot_status", "on")
-				answerCallback(botToken, cb.ID, "Бот запущен")
-				sendWithButtons(botToken, chatID, "✅ Бот запущен\nСтатус: работает")
+				sendWithButtons(botToken, chatID, "✅ Бот запущен\n\n"+statusText())
+			} else {
+				sendWithButtons(botToken, chatID, "⚠️ Бот уже запущен\n\n"+statusText())
 			}
-		case "stop":
+		case cq.Data == "stop":
 			redisSet("bot_status", "off")
-			answerCallback(botToken, cb.ID, "Бот остановлен")
-			sendWithButtons(botToken, chatID, "⏹ Бот остановлен\nСтатус: не работает")
-		case "message":
+			sendWithButtons(botToken, chatID, "🛑 Бот остановлен\n\n"+statusText())
+		case cq.Data == "message":
 			msg := redisGet("stream_message")
 			if msg == "" {
 				msg = "Сообщение не задано"
 			}
-			answerCallback(botToken, cb.ID, "")
-			sendWithButtons(botToken, chatID, fmt.Sprintf("📋 Текущее сообщение:\n%s", msg))
+			sendWithButtons(botToken, chatID, "📋 Текущее сообщение:\n\n"+msg+"\n\n"+statusText())
+		case cq.Data == "skip":
+			sendTelegramTo(botToken, chatID, "👌 Оповещение отменено")
+		case strings.HasPrefix(cq.Data, "notify_"):
+			parts := strings.SplitN(strings.TrimPrefix(cq.Data, "notify_"), "_", 2)
+			category := ""
+			title := ""
+			if len(parts) == 2 {
+				category = parts[0]
+				title = parts[1]
+			}
+			text := fmt.Sprintf("🔄 Сменили категорию и название!\n\nКатегория: <b>%s</b>\nСидим: <b>%s</b>", category, title)
+			sendTelegramMessage(text)
+			sendTelegramTo(botToken, chatID, "✅ Оповещение отправлено в канал")
 		}
 
 		w.WriteHeader(http.StatusOK)
@@ -249,12 +295,7 @@ func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if text == "/start" {
-		status := getStatus()
-		statusText := "работает"
-		if status == "off" {
-			statusText = "не работает"
-		}
-		sendWithButtons(botToken, chatID, fmt.Sprintf("Привет! Статус бота: %s", statusText))
+		sendWithButtons(botToken, chatID, statusText())
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -270,7 +311,7 @@ func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendWithButtons(botToken, chatID, fmt.Sprintf("Сообщение обновлено:\n%s", text))
+	sendWithButtons(botToken, chatID, fmt.Sprintf("Сообщение обновлено:\n%s\n\n%s", text, statusText()))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -301,36 +342,39 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if payload.Subscription.Type != "stream.online" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
+	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
-	if getStatus() == "off" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	msg := redisGet("stream_message")
-
-	var text string
-	if msg != "" {
-		text = msg
-	} else {
-		streamer := payload.Event.BroadcasterUserLogin
-		displayName := payload.Event.BroadcasterUserName
-		if displayName == "" {
-			displayName = streamer
+	switch payload.Subscription.Type {
+	case "stream.online":
+		status := redisGet("bot_status")
+		if status == "off" {
+			w.WriteHeader(http.StatusOK)
+			return
 		}
-		text = fmt.Sprintf(
-			"🔴 <b>%s</b> начал стрим!\n\nЗаходите смотреть: https://twitch.tv/%s",
-			displayName, streamer,
-		)
-	}
 
-	if err := sendTelegramMessage(text); err != nil {
-		http.Error(w, "telegram error", http.StatusInternalServerError)
-		return
+		msg := redisGet("stream_message")
+		var text string
+		if msg != "" {
+			text = msg
+		} else {
+			streamer := payload.Event.BroadcasterUserLogin
+			displayName := payload.Event.BroadcasterUserName
+			if displayName == "" {
+				displayName = streamer
+			}
+			text = fmt.Sprintf(
+				"🔴 <b>%s</b> начал стрим!\n\nЗаходите смотреть: https://twitch.tv/%s",
+				displayName, streamer,
+			)
+		}
+		sendTelegramMessage(text)
+
+	case "channel.update":
+		title := payload.Event.Title
+		category := payload.Event.CategoryName
+		for userID := range allowedUsers {
+			sendUpdateNotification(botToken, userID, title, category)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
