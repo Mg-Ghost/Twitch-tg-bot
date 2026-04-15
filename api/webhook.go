@@ -270,7 +270,7 @@ func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
 				category = parts[0]
 				title = parts[1]
 			}
-			text := fmt.Sprintf("🔄 Сменили категорию и название!\n\nКатегория: <b>%s</b>\nСидим: <b>%s</b>", category, title)
+			text := fmt.Sprintf("🔄 Сменили категорию и название!\n\nКатегория: <b>%s</b>\nНазвание: <b>%s</b>", category, title)
 			sendTelegramMessage(text)
 			sendTelegramTo(botToken, chatID, "✅ Оповещение отправлено в канал")
 		}
