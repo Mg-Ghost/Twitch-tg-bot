@@ -61,10 +61,11 @@ func redisSet(key, value string) error {
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
 	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	reqURL := fmt.Sprintf("%s/set/%s", restURL, key)
-	body := fmt.Sprintf(`["EX","86400",%s]`, jsonString(value))
+	type setCmd []interface{}
+	cmd := setCmd{"SET", key, value}
+	body, _ := json.Marshal(cmd)
 
-	req, err := http.NewRequest("POST", reqURL, strings.NewReader(body))
+	req, err := http.NewRequest("POST", restURL, strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}
@@ -83,12 +84,16 @@ func redisGet(key string) string {
 	token := os.Getenv("UPSTASH_REDIS_REST_TOKEN")
 	restURL := os.Getenv("UPSTASH_REDIS_REST_URL")
 
-	reqURL := fmt.Sprintf("%s/get/%s", restURL, key)
-	req, err := http.NewRequest("GET", reqURL, nil)
+	type getCmd []interface{}
+	cmd := getCmd{"GET", key}
+	body, _ := json.Marshal(cmd)
+
+	req, err := http.NewRequest("POST", restURL, strings.NewReader(string(body)))
 	if err != nil {
 		return ""
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
