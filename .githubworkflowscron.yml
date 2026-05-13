@@ -1,0 +1,14 @@
+name: Stream Reminder
+
+on:
+  schedule:
+    - cron: '0,30 16,17,18 * * *'
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send reminder
+        run: |
+          curl -X POST "https://twitch-tg-bot.vercel.app/cron" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}"

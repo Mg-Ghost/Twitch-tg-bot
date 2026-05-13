@@ -321,6 +321,11 @@ func statusText() string {
 }
 
 func handleCron(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("X-Cron-Secret") != os.Getenv("CRON_SECRET") {
+		http.Error(w, "unauthorized", http.StatusForbidden)
+		return
+	}
+
 	now := time.Now().UTC().Add(3 * time.Hour)
 	hour := now.Hour()
 

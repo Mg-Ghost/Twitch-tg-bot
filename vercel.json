@@ -3,11 +3,5 @@
     { "src": "/webhook", "dest": "/api/webhook.go" },
     { "src": "/tg-update", "dest": "/api/webhook.go" },
     { "src": "/cron", "dest": "/api/webhook.go" }
-  ],
-  "crons": [
-    {
-      "path": "/cron",
-      "schedule": "0 17,18,19 * * *"
-    }
   ]
 }
