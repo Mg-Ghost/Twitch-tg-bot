@@ -263,7 +263,7 @@ func sendTelegramMessage(text string) error {
 func sendTelegramTo(botToken string, chatID interface{}, text string) error {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	payload := fmt.Sprintf(
-		`{"chat_id":%s,"text":%s,"parse_mode":"HTML"}`,
+		`{"chat_id":%s,"text":%s,"parse_mode":"HTML","disable_web_page_preview":true}`,
 		jsonString(fmt.Sprintf("%v", chatID)), jsonString(text),
 	)
 	resp, err := http.Post(apiURL, "application/json", strings.NewReader(payload))
@@ -278,7 +278,7 @@ func sendReplyKeyboard(botToken string, chatID interface{}, text string) error {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	keyboard := `{"keyboard":[[{"text":"▶ Старт"},{"text":"⏹ Стоп"}],[{"text":"📋 Сообщение"}]],"resize_keyboard":true,"persistent":true}`
 	payload := fmt.Sprintf(
-		`{"chat_id":%s,"text":%s,"parse_mode":"HTML","reply_markup":%s}`,
+		`{"chat_id":%s,"text":%s,"parse_mode":"HTML","disable_web_page_preview":true,"reply_markup":%s}`,
 		jsonString(fmt.Sprintf("%v", chatID)), jsonString(text), keyboard,
 	)
 	resp, err := http.Post(apiURL, "application/json", strings.NewReader(payload))
