@@ -247,7 +247,17 @@ func verifyTwitchSignature(r *http.Request, body []byte) bool {
 func sendTelegramMessage(text string) error {
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := os.Getenv("TELEGRAM_CHANNEL_ID")
-	return sendTelegramTo(botToken, chatID, text)
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	payload := fmt.Sprintf(
+		`{"chat_id":%s,"text":%s,"parse_mode":"HTML","disable_web_page_preview":true}`,
+		jsonString(fmt.Sprintf("%v", chatID)), jsonString(text),
+	)
+	resp, err := http.Post(apiURL, "application/json", strings.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 func sendTelegramTo(botToken string, chatID interface{}, text string) error {
