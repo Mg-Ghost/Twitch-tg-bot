@@ -349,10 +349,18 @@ func handleCron(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rand.Float32() < 0.5 {
+	sent := redisGet("quote_sent_today")
+	if sent == today() {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+
+	if rand.Float32() < 0.4 {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	redisSet("quote_sent_today", today())
 
 	quote := quotes[rand.Intn(len(quotes))]
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
@@ -361,6 +369,10 @@ func handleCron(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func today() string {
+	return time.Now().UTC().Add(3 * time.Hour).Format("2006-01-02")
 }
 
 func handleTgUpdate(w http.ResponseWriter, r *http.Request) {
