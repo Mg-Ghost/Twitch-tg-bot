@@ -521,13 +521,25 @@ func handleWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 		sendTelegramMessage(text)
 
-	case "channel.update":
-		title := payload.Event.Title
-		category := payload.Event.CategoryName
-		for userID := range allowedUsers {
-			sendUpdateNotification(botToken, userID, title, category)
+		case "channel.update":
+			title := payload.Event.Title
+			category := payload.Event.CategoryName
+
+			prevTitle := redisGet("prev_title")
+			prevCategory := redisGet("prev_category")
+
+			titleChanged := prevTitle != "" && prevTitle != title
+			categoryChanged := prevCategory != "" && prevCategory != category
+
+			redisSet("prev_title", title)
+			redisSet("prev_category", category)
+
+			if titleChanged && categoryChanged {
+				for userID := range allowedUsers {
+					sendUpdateNotification(botToken, userID, title, category)
+				}
+			}
 		}
-	}
 
 	w.WriteHeader(http.StatusOK)
 }
